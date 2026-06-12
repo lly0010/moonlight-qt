@@ -34,6 +34,10 @@ jobs:
           submodules: 'recursive'
           fetch-depth: 1
 
+      - name: Apply moonlight-common-c custom ports patch
+        shell: bash
+        run: git -C moonlight-common-c/moonlight-common-c apply "${GITHUB_WORKSPACE}/patches/moonlight-common-c-custom-ports.patch"
+
       - name: Download dependencies (Windows)
         if: runner.os == 'Windows'
         run: powershell ./setup-deps.ps1
