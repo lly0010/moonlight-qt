@@ -1,0 +1,105 @@
+---
+name: Release
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      ci_version: ${{ steps.set-ci-version.outputs.ci_version }}
+    steps:
+      - name: Set CI version
+        id: set-ci-version
+        shell: bash
+        run: |
+          # For tag pushes, use the tag name (without leading 'v'); otherwise use the short SHA
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            CI_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            CI_VERSION=`echo ${GITHUB_SHA} | cut -c1-6`
+          fi
+          echo "ci_version=${CI_VERSION}" >> "${GITHUB_OUTPUT}"
+
+  build-appimage:
+    needs: setup
+    uses: ./.github/workflows/build-appimage.yml
+    with:
+      ci_version: ${{ needs.setup.outputs.ci_version }}
+
+  build-steamlink:
+    needs: setup
+    uses: ./.github/workflows/build-steamlink.yml
+    with:
+      ci_version: ${{ needs.setup.outputs.ci_version }}
+
+  build-windows-macos:
+    needs: setup
+    uses: ./.github/workflows/build-win-mac.yml
+    with:
+      ci_version: ${{ needs.setup.outputs.ci_version }}
+
+  publish:
+    needs: [setup, build-appimage, build-steamlink, build-windows-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: artifacts
+
+      - name: Package artifacts into release assets
+        shell: bash
+        run: |
+          set -e
+          mkdir -p release
+          cd artifacts
+          # Each user-facing artifact is a directory of files; zip each into a single asset.
+          # Skip the debugging symbol artifacts (named zDevDbgSyms-*).
+          for d in Moonlight-*/; do
+            name="${d%/}"
+            (cd "$d" && zip -r "$GITHUB_WORKSPACE/release/${name}.zip" .)
+          done
+          echo "Release assets:"
+          ls -la "$GITHUB_WORKSPACE/release"
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -e
+          NOTES_FILE="$(mktemp)"
+          cat > "$NOTES_FILE" <<'EOF'
+          This release adds support for **custom Sunshine ports** in the Moonlight
+          client. In the "Add PC" dialog, enable **Use custom ports** to override the
+          HTTPS, video, audio, control and RTSP ports independently (the HTTP port is
+          set as `:port` on the host address). This is intended for hosts reachable on
+          non-standard ports, e.g. behind NAT or port-forwarding that remaps each port.
+
+          ### Downloads
+          - **Windows x64 (portable):** `Moonlight-Windows-x64-*.zip`
+          - **Windows ARM64 (portable):** `Moonlight-Windows-arm64-*.zip`
+          - **macOS:** `Moonlight-macOS-*.zip` (contains the .dmg)
+          - **Linux AppImage:** `Moonlight-LinuxAppImage-*.zip`
+          - **Steam Link:** `Moonlight-SteamLink-*.zip`
+          EOF
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Moonlight $GITHUB_REF_NAME (custom Sunshine ports)" \
+            --notes-file "$NOTES_FILE" \
+            "$GITHUB_WORKSPACE"/release/*.zip
