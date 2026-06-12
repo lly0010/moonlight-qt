@@ -3,11 +3,22 @@ name: Release
 permissions:
   contents: write
 
+# This fork cannot push tags directly, so releases are cut by pushing a change
+# to .github/RELEASE_TRIGGER on the development branch (or via manual dispatch).
+# The publish job creates the git tag and GitHub Release from within CI, where
+# the workflow token has write access.
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - 'claude/moonlight-sunshine-custom-ports-k4jjlg'
+    paths:
+      - '.github/RELEASE_TRIGGER'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create'
+        required: false
+        default: 'v6.1.0-customports'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,19 +28,19 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      ci_version: ${{ steps.set-ci-version.outputs.ci_version }}
+      ci_version: ${{ steps.vars.outputs.ci_version }}
+      tag: ${{ steps.vars.outputs.tag }}
     steps:
-      - name: Set CI version
-        id: set-ci-version
+      - name: Compute version and tag
+        id: vars
         shell: bash
         run: |
-          # For tag pushes, use the tag name (without leading 'v'); otherwise use the short SHA
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            CI_VERSION="${GITHUB_REF_NAME#v}"
-          else
-            CI_VERSION=`echo ${GITHUB_SHA} | cut -c1-6`
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="v6.1.0-customports"
           fi
-          echo "ci_version=${CI_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "ci_version=${TAG#v}" >> "${GITHUB_OUTPUT}"
 
   build-appimage:
     needs: setup
@@ -66,8 +77,8 @@ jobs:
           set -e
           mkdir -p release
           cd artifacts
-          # Each user-facing artifact is a directory of files; zip each into a single asset.
-          # Skip the debugging symbol artifacts (named zDevDbgSyms-*).
+          # Each user-facing artifact is a directory of files; zip each into a single
+          # asset. Skip the debugging symbol artifacts (named zDevDbgSyms-*).
           for d in Moonlight-*/; do
             name="${d%/}"
             (cd "$d" && zip -r "$GITHUB_WORKSPACE/release/${name}.zip" .)
@@ -76,9 +87,9 @@ jobs:
           ls -la "$GITHUB_WORKSPACE/release"
 
       - name: Create GitHub Release
-        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.setup.outputs.tag }}
         shell: bash
         run: |
           set -e
@@ -97,9 +108,12 @@ jobs:
           - **Linux AppImage:** `Moonlight-LinuxAppImage-*.zip`
           - **Steam Link:** `Moonlight-SteamLink-*.zip`
           EOF
-          gh release create "$GITHUB_REF_NAME" \
+
+          # Recreate the release/tag so re-runs produce a clean result
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Moonlight $GITHUB_REF_NAME (custom Sunshine ports)" \
+            --title "Moonlight $TAG (custom Sunshine ports)" \
             --notes-file "$NOTES_FILE" \
             "$GITHUB_WORKSPACE"/release/*.zip
