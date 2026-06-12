@@ -1614,9 +1614,18 @@ bool Session::startConnectionAsync()
     QByteArray siAppVersion = m_Computer->appVersion.toUtf8();
 
     SERVER_INFORMATION hostInfo;
+    LiInitializeServerInformation(&hostInfo);
     hostInfo.address = hostnameStr.data();
     hostInfo.serverInfoAppVersion = siAppVersion.data();
     hostInfo.serverCodecModeSupport = m_Computer->serverCodecModeSupport;
+
+    // Apply any user-configured streaming port overrides for hosts reachable on
+    // non-standard ports (e.g. behind NAT/port-forwarding). A value of 0 leaves
+    // moonlight-common-c to use the default or RTSP-negotiated port.
+    hostInfo.rtspPortOverride = m_Computer->rtspPortOverride;
+    hostInfo.videoPortOverride = m_Computer->videoPortOverride;
+    hostInfo.audioPortOverride = m_Computer->audioPortOverride;
+    hostInfo.controlPortOverride = m_Computer->controlPortOverride;
 
     // Older GFE versions didn't have this field
     QByteArray siGfeVersion;

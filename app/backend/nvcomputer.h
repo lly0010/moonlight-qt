@@ -8,6 +8,24 @@
 #include <QSettings>
 #include <QRunnable>
 
+// User-specified port overrides for hosts reachable on non-standard ports.
+// A value of 0 means "use the default/auto-negotiated port". The HTTP port is
+// carried separately as the port of the host address.
+struct NvPortOverrides
+{
+    uint16_t httpsPort = 0;
+    uint16_t videoPort = 0;
+    uint16_t audioPort = 0;
+    uint16_t controlPort = 0;
+    uint16_t rtspPort = 0;
+
+    bool isEmpty() const
+    {
+        return httpsPort == 0 && videoPort == 0 && audioPort == 0 &&
+               controlPort == 0 && rtspPort == 0;
+    }
+};
+
 class CopySafeReadWriteLock : public QReadWriteLock
 {
 public:
@@ -113,6 +131,16 @@ public:
     QSslCertificate serverCert;
     QVector<NvApp> appList;
     bool isNvidiaServerSoftware;
+
+    // User-specified port overrides for hosts reachable on non-standard ports
+    // (for example, behind NAT/port-forwarding that remaps each port). A value
+    // of 0 means "use the default/auto-negotiated port". The HTTP port override
+    // is stored as the port of manualAddress.
+    uint16_t httpsPortOverride;
+    uint16_t videoPortOverride;
+    uint16_t audioPortOverride;
+    uint16_t controlPortOverride;
+    uint16_t rtspPortOverride;
     // Remember to update isEqualSerialized() when adding fields here!
 
     // Synchronization

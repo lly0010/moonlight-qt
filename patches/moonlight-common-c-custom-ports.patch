@@ -1,0 +1,121 @@
+diff --git a/src/Connection.c b/src/Connection.c
+index bac9a6e..01d1fdb 100644
+--- a/src/Connection.c
++++ b/src/Connection.c
+@@ -29,6 +29,10 @@ uint16_t RtspPortNumber;
+ uint16_t ControlPortNumber;
+ uint16_t AudioPortNumber;
+ uint16_t VideoPortNumber;
++uint16_t RtspPortOverride;
++uint16_t ControlPortOverride;
++uint16_t AudioPortOverride;
++uint16_t VideoPortOverride;
+ SS_PING AudioPingPayload;
+ SS_PING VideoPingPayload;
+ uint32_t ControlConnectData;
+@@ -268,8 +272,21 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
+     ControlPortNumber = 0;
+     AudioPortNumber = 0;
+ 
+-    // Parse RTSP port number from RTSP session URL
+-    if (!parseRtspPortNumberFromUrl(serverInfo->rtspSessionUrl, &RtspPortNumber)) {
++    // Capture any caller-provided port overrides. These take precedence over
++    // the well-known ports and the ports negotiated via RTSP, which allows
++    // connecting to hosts that are reachable on non-standard ports.
++    RtspPortOverride = serverInfo->rtspPortOverride;
++    VideoPortOverride = serverInfo->videoPortOverride;
++    AudioPortOverride = serverInfo->audioPortOverride;
++    ControlPortOverride = serverInfo->controlPortOverride;
++
++    // Use the RTSP port override if provided, otherwise parse it from the RTSP session URL
++    if (RtspPortOverride != 0) {
++        RtspPortNumber = RtspPortOverride;
++
++        Limelog("RTSP port: %u (overridden)\n", RtspPortNumber);
++    }
++    else if (!parseRtspPortNumberFromUrl(serverInfo->rtspSessionUrl, &RtspPortNumber)) {
+         // Use the well known port if parsing fails
+         RtspPortNumber = 48010;
+ 
+diff --git a/src/Limelight-internal.h b/src/Limelight-internal.h
+index e1314c5..c9e2aff 100644
+--- a/src/Limelight-internal.h
++++ b/src/Limelight-internal.h
+@@ -37,6 +37,10 @@ extern uint16_t RtspPortNumber;
+ extern uint16_t ControlPortNumber;
+ extern uint16_t AudioPortNumber;
+ extern uint16_t VideoPortNumber;
++extern uint16_t RtspPortOverride;
++extern uint16_t ControlPortOverride;
++extern uint16_t AudioPortOverride;
++extern uint16_t VideoPortOverride;
+ 
+ extern SS_PING AudioPingPayload;
+ extern SS_PING VideoPingPayload;
+diff --git a/src/Limelight.h b/src/Limelight.h
+index e622bea..12ba705 100644
+--- a/src/Limelight.h
++++ b/src/Limelight.h
+@@ -536,6 +536,16 @@ typedef struct _SERVER_INFORMATION {
+ 
+     // Specifies the 'ServerCodecModeSupport' from the /serverinfo response.
+     int serverCodecModeSupport;
++
++    // Optional port overrides for hosts that are reachable on non-standard ports
++    // (for example, behind NAT or port-forwarding rules that remap each port
++    // independently). When set to a non-zero value, the specified port is used
++    // instead of the well-known port or the port negotiated via RTSP. Leave set
++    // to 0 to use the default behavior.
++    uint16_t rtspPortOverride;
++    uint16_t videoPortOverride;
++    uint16_t audioPortOverride;
++    uint16_t controlPortOverride;
+ } SERVER_INFORMATION, *PSERVER_INFORMATION;
+ 
+ // Use this function to zero the server information when allocated on the stack or heap
+diff --git a/src/RtspConnection.c b/src/RtspConnection.c
+index 3669bdc..a15b65f 100644
+--- a/src/RtspConnection.c
++++ b/src/RtspConnection.c
+@@ -1189,7 +1189,12 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
+ 
+         // Parse the audio port out of the RTSP SETUP response
+         LC_ASSERT(AudioPortNumber == 0);
+-        if (!parseServerPortFromTransport(&response, &AudioPortNumber)) {
++        if (AudioPortOverride != 0) {
++            AudioPortNumber = AudioPortOverride;
++
++            Limelog("Audio port: %u (overridden)\n", AudioPortNumber);
++        }
++        else if (!parseServerPortFromTransport(&response, &AudioPortNumber)) {
+             // Use the well known port if parsing fails
+             AudioPortNumber = 48000;
+ 
+@@ -1273,7 +1278,12 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
+ 
+         // Parse the video port out of the RTSP SETUP response
+         LC_ASSERT(VideoPortNumber == 0);
+-        if (!parseServerPortFromTransport(&response, &VideoPortNumber)) {
++        if (VideoPortOverride != 0) {
++            VideoPortNumber = VideoPortOverride;
++
++            Limelog("Video port: %u (overridden)\n", VideoPortNumber);
++        }
++        else if (!parseServerPortFromTransport(&response, &VideoPortNumber)) {
+             // Use the well known port if parsing fails
+             VideoPortNumber = 47998;
+ 
+@@ -1317,7 +1327,12 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
+ 
+         // Parse the control port out of the RTSP SETUP response
+         LC_ASSERT(ControlPortNumber == 0);
+-        if (!parseServerPortFromTransport(&response, &ControlPortNumber)) {
++        if (ControlPortOverride != 0) {
++            ControlPortNumber = ControlPortOverride;
++
++            Limelog("Control port: %u (overridden)\n", ControlPortNumber);
++        }
++        else if (!parseServerPortFromTransport(&response, &ControlPortNumber)) {
+             // Use the well known port if parsing fails
+             ControlPortNumber = 47999;
+ 

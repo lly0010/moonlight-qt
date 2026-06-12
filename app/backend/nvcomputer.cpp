@@ -22,6 +22,11 @@
 #define SER_SRVCERT "srvcert"
 #define SER_CUSTOMNAME "customname"
 #define SER_NVIDIASOFTWARE "nvidiasw"
+#define SER_HTTPSPORTOVERRIDE "httpsportoverride"
+#define SER_VIDEOPORTOVERRIDE "videoportoverride"
+#define SER_AUDIOPORTOVERRIDE "audioportoverride"
+#define SER_CONTROLPORTOVERRIDE "controlportoverride"
+#define SER_RTSPPORTOVERRIDE "rtspportoverride"
 
 NvComputer::NvComputer(QSettings& settings)
 {
@@ -39,6 +44,11 @@ NvComputer::NvComputer(QSettings& settings)
                                     settings.value(SER_MANUALPORT, QVariant(DEFAULT_HTTP_PORT)).toUInt());
     this->serverCert = QSslCertificate(settings.value(SER_SRVCERT).toByteArray());
     this->isNvidiaServerSoftware = settings.value(SER_NVIDIASOFTWARE).toBool();
+    this->httpsPortOverride = settings.value(SER_HTTPSPORTOVERRIDE).toUInt();
+    this->videoPortOverride = settings.value(SER_VIDEOPORTOVERRIDE).toUInt();
+    this->audioPortOverride = settings.value(SER_AUDIOPORTOVERRIDE).toUInt();
+    this->controlPortOverride = settings.value(SER_CONTROLPORTOVERRIDE).toUInt();
+    this->rtspPortOverride = settings.value(SER_RTSPPORTOVERRIDE).toUInt();
 
     int appCount = settings.beginReadArray(SER_APPLIST);
     this->appList.reserve(appCount);
@@ -62,7 +72,10 @@ NvComputer::NvComputer(QSettings& settings)
     this->gpuModel = nullptr;
     this->isSupportedServerVersion = true;
     this->externalPort = this->remoteAddress.port();
-    this->activeHttpsPort = 0;
+
+    // If the user configured a manual HTTPS port, use it as the initial active
+    // port so we can reach the host before the first serverinfo poll completes.
+    this->activeHttpsPort = this->httpsPortOverride;
 }
 
 void NvComputer::setRemoteAddress(QHostAddress address)
@@ -92,6 +105,11 @@ void NvComputer::serialize(QSettings& settings, bool serializeApps) const
     settings.setValue(SER_MANUALPORT, manualAddress.port());
     settings.setValue(SER_SRVCERT, serverCert.toPem());
     settings.setValue(SER_NVIDIASOFTWARE, isNvidiaServerSoftware);
+    settings.setValue(SER_HTTPSPORTOVERRIDE, httpsPortOverride);
+    settings.setValue(SER_VIDEOPORTOVERRIDE, videoPortOverride);
+    settings.setValue(SER_AUDIOPORTOVERRIDE, audioPortOverride);
+    settings.setValue(SER_CONTROLPORTOVERRIDE, controlPortOverride);
+    settings.setValue(SER_RTSPPORTOVERRIDE, rtspPortOverride);
 
     // Avoid deleting an existing applist if we couldn't get one
     if (!appList.isEmpty() && serializeApps) {
@@ -117,6 +135,11 @@ bool NvComputer::isEqualSerialized(const NvComputer &that) const
            this->manualAddress == that.manualAddress &&
            this->serverCert == that.serverCert &&
            this->isNvidiaServerSoftware == that.isNvidiaServerSoftware &&
+           this->httpsPortOverride == that.httpsPortOverride &&
+           this->videoPortOverride == that.videoPortOverride &&
+           this->audioPortOverride == that.audioPortOverride &&
+           this->controlPortOverride == that.controlPortOverride &&
+           this->rtspPortOverride == that.rtspPortOverride &&
            this->appList == that.appList;
 }
 
@@ -211,6 +234,20 @@ NvComputer::NvComputer(NvHTTP& http, QString serverInfo)
     this->state = NvComputer::CS_ONLINE;
     this->pendingQuit = false;
     this->isSupportedServerVersion = CompatFetcher::isGfeVersionSupported(this->gfeVersion);
+
+    // Port overrides are user-specified, not discovered from serverinfo. They are
+    // populated separately by the add flow (and merged via update()).
+    this->httpsPortOverride = 0;
+    this->videoPortOverride = 0;
+    this->audioPortOverride = 0;
+    this->controlPortOverride = 0;
+    this->rtspPortOverride = 0;
+
+    // If an HTTPS port override is later applied, it wins over the discovered port.
+    if (http.httpsPortOverride() != 0) {
+        this->httpsPortOverride = http.httpsPortOverride();
+        this->activeHttpsPort = http.httpsPortOverride();
+    }
 }
 
 bool NvComputer::wake() const
@@ -547,6 +584,16 @@ bool NvComputer::update(const NvComputer& that)
         changed = true;                       \
     }
 
+    // Port overrides are user-specified configuration that is only carried by
+    // explicit add/update operations (re-polls leave them at 0), so a zero value
+    // must not clobber an existing override.
+#define ASSIGN_IF_CHANGED_AND_NONZERO(field)  \
+    if (that.field != 0 &&                    \
+        this->field != that.field) {          \
+        this->field = that.field;             \
+        changed = true;                       \
+    }
+
     if (!hasCustomName) {
         // Only overwrite the name if it's not custom
         ASSIGN_IF_CHANGED(name);
@@ -558,6 +605,17 @@ bool NvComputer::update(const NvComputer& that)
     ASSIGN_IF_CHANGED_AND_NONNULL(manualAddress);
     ASSIGN_IF_CHANGED(activeHttpsPort);
     ASSIGN_IF_CHANGED(externalPort);
+    ASSIGN_IF_CHANGED_AND_NONZERO(httpsPortOverride);
+    ASSIGN_IF_CHANGED_AND_NONZERO(videoPortOverride);
+    ASSIGN_IF_CHANGED_AND_NONZERO(audioPortOverride);
+    ASSIGN_IF_CHANGED_AND_NONZERO(controlPortOverride);
+    ASSIGN_IF_CHANGED_AND_NONZERO(rtspPortOverride);
+
+    // A manual HTTPS port override always wins over the port discovered via serverinfo
+    if (this->httpsPortOverride != 0 && this->activeHttpsPort != this->httpsPortOverride) {
+        this->activeHttpsPort = this->httpsPortOverride;
+        changed = true;
+    }
     ASSIGN_IF_CHANGED(pairState);
     ASSIGN_IF_CHANGED(serverCodecModeSupport);
     ASSIGN_IF_CHANGED(currentGameId);

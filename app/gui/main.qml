@@ -525,11 +525,27 @@ ApplicationWindow {
 
         onClosed: {
             editText.clear()
+            httpsPortField.clear()
+            videoPortField.clear()
+            audioPortField.clear()
+            controlPortField.clear()
+            rtspPortField.clear()
+            customPortsCheck.checked = false
         }
 
         onAccepted: {
             if (editText.text) {
-                ComputerManager.addNewHostManually(editText.text.trim())
+                if (customPortsCheck.checked) {
+                    ComputerManager.addNewHostManually(editText.text.trim(),
+                                                       parseInt(httpsPortField.text) || 0,
+                                                       parseInt(videoPortField.text) || 0,
+                                                       parseInt(audioPortField.text) || 0,
+                                                       parseInt(controlPortField.text) || 0,
+                                                       parseInt(rtspPortField.text) || 0)
+                }
+                else {
+                    ComputerManager.addNewHostManually(editText.text.trim())
+                }
             }
         }
 
@@ -537,12 +553,14 @@ ApplicationWindow {
             Label {
                 text: addPcDialog.label
                 font.bold: true
+                Layout.fillWidth: true
             }
 
             TextField {
                 id: editText
                 Layout.fillWidth: true
                 focus: true
+                placeholderText: qsTr("IP address or hostname (e.g. 192.168.1.100 or 192.168.1.100:47989)")
 
                 Keys.onReturnPressed: {
                     addPcDialog.accept()
@@ -550,6 +568,71 @@ ApplicationWindow {
 
                 Keys.onEnterPressed: {
                     addPcDialog.accept()
+                }
+            }
+
+            CheckBox {
+                id: customPortsCheck
+                text: qsTr("Use custom ports (for hosts behind NAT or port forwarding)")
+            }
+
+            Label {
+                visible: customPortsCheck.checked
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                font.pointSize: 9
+                text: qsTr("Leave a field blank to use Sunshine's default port. The HTTP port is set by adding ':port' to the address above.")
+            }
+
+            GridLayout {
+                visible: customPortsCheck.checked
+                Layout.fillWidth: true
+                columns: 2
+                columnSpacing: 10
+
+                Label { text: qsTr("HTTPS port:") }
+                TextField {
+                    id: httpsPortField
+                    Layout.fillWidth: true
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    placeholderText: "47984"
+                    validator: IntValidator { bottom: 0; top: 65535 }
+                }
+
+                Label { text: qsTr("Video port (UDP):") }
+                TextField {
+                    id: videoPortField
+                    Layout.fillWidth: true
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    placeholderText: "47998"
+                    validator: IntValidator { bottom: 0; top: 65535 }
+                }
+
+                Label { text: qsTr("Audio port (UDP):") }
+                TextField {
+                    id: audioPortField
+                    Layout.fillWidth: true
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    placeholderText: "48000"
+                    validator: IntValidator { bottom: 0; top: 65535 }
+                }
+
+                Label { text: qsTr("Control port (UDP):") }
+                TextField {
+                    id: controlPortField
+                    Layout.fillWidth: true
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    placeholderText: "47999"
+                    validator: IntValidator { bottom: 0; top: 65535 }
+                }
+
+                Label { text: qsTr("RTSP port (TCP):") }
+                TextField {
+                    id: rtspPortField
+                    Layout.fillWidth: true
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    placeholderText: "48010"
+                    validator: IntValidator { bottom: 0; top: 65535 }
                 }
             }
         }

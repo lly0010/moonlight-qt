@@ -26,7 +26,8 @@
 
 NvHTTP::NvHTTP(NvAddress address, uint16_t httpsPort, QSslCertificate serverCert, QNetworkAccessManager* nam) :
     m_Nam(nam ? nam : new QNetworkAccessManager(this)),
-    m_ServerCert(serverCert)
+    m_ServerCert(serverCert),
+    m_HttpsPortOverride(0)
 {
     m_BaseUrlHttp.setScheme("http");
     m_BaseUrlHttps.setScheme("https");
@@ -42,7 +43,9 @@ NvHTTP::NvHTTP(NvAddress address, uint16_t httpsPort, QSslCertificate serverCert
 NvHTTP::NvHTTP(NvComputer* computer, QNetworkAccessManager* nam) :
     NvHTTP(computer->activeAddress, computer->activeHttpsPort, computer->serverCert, nam)
 {
-
+    // Carry over any user-configured HTTPS port override so it wins over the
+    // port reported in serverinfo.
+    setHttpsPortOverride(computer->httpsPortOverride);
 }
 
 void NvHTTP::setServerCert(QSslCertificate serverCert)
@@ -65,6 +68,21 @@ void NvHTTP::setAddress(NvAddress address)
 void NvHTTP::setHttpsPort(uint16_t port)
 {
     m_BaseUrlHttps.setPort(port);
+}
+
+void NvHTTP::setHttpsPortOverride(uint16_t port)
+{
+    m_HttpsPortOverride = port;
+
+    // Apply the override immediately so subsequent requests use it
+    if (port != 0) {
+        setHttpsPort(port);
+    }
+}
+
+uint16_t NvHTTP::httpsPortOverride()
+{
+    return m_HttpsPortOverride;
 }
 
 NvAddress NvHTTP::address()
@@ -174,8 +192,13 @@ NvHTTP::getServerInfo(NvLogLevel logLevel, bool fastFail)
                                             logLevel);
         verifyResponseStatus(serverInfo);
 
-        // Populate the HTTPS port
-        uint16_t httpsPort = getXmlString(serverInfo, "HttpsPort").toUShort();
+        // Populate the HTTPS port. A user-configured override always wins over
+        // the port reported by the host (which may be wrong if the host is
+        // reachable on a remapped port).
+        uint16_t httpsPort = m_HttpsPortOverride;
+        if (httpsPort == 0) {
+            httpsPort = getXmlString(serverInfo, "HttpsPort").toUShort();
+        }
         if (httpsPort == 0) {
             httpsPort = DEFAULT_HTTPS_PORT;
         }

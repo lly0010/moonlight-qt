@@ -146,6 +146,12 @@ public:
     void setAddress(NvAddress address);
     void setHttpsPort(uint16_t port);
 
+    // When set to a non-zero value, this HTTPS port is used unconditionally and
+    // overrides the HTTPS port reported by the host in serverinfo. This is used
+    // for hosts reachable on non-standard ports (e.g. behind NAT/port-forwarding).
+    void setHttpsPortOverride(uint16_t port);
+    uint16_t httpsPortOverride();
+
     NvAddress address();
 
     QSslCertificate serverCert();
@@ -198,4 +204,5 @@ private:
     NvAddress m_Address;
     QNetworkAccessManager* m_Nam;
     QSslCertificate m_ServerCert;
+    uint16_t m_HttpsPortOverride;
 };

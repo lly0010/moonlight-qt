@@ -33,6 +33,10 @@ private:
     {
         NvHTTP http(address, 0, m_Computer->serverCert, nam);
 
+        // Carry over any user-configured HTTPS port override so polling reaches
+        // the host on its remapped port instead of the advertised one.
+        http.setHttpsPortOverride(m_Computer->httpsPortOverride);
+
         QString serverInfo;
         try {
             serverInfo = http.getServerInfo(NvHTTP::NvLogLevel::NVLL_NONE, true);
@@ -726,16 +730,25 @@ void ComputerManager::stopPollingAsync()
     }
 }
 
-void ComputerManager::addNewHostManually(QString address)
+void ComputerManager::addNewHostManually(QString address,
+                                         int httpsPort, int videoPort, int audioPort,
+                                         int controlPort, int rtspPort)
 {
+    NvPortOverrides overrides;
+    overrides.httpsPort = (uint16_t)httpsPort;
+    overrides.videoPort = (uint16_t)videoPort;
+    overrides.audioPort = (uint16_t)audioPort;
+    overrides.controlPort = (uint16_t)controlPort;
+    overrides.rtspPort = (uint16_t)rtspPort;
+
     QUrl url = QUrl::fromUserInput("moonlight://" + address);
     if (url.isValid() && !url.host().isEmpty() && url.scheme() == "moonlight") {
         // If there wasn't a port specified, use the default
-        addNewHost(NvAddress(url.host(), url.port(DEFAULT_HTTP_PORT)), false);
+        addNewHost(NvAddress(url.host(), url.port(DEFAULT_HTTP_PORT)), false, QString(), NvAddress(), overrides);
     }
     else if (QHostAddress(address).protocol() == QAbstractSocket::IPv6Protocol) {
         // The user specified an IPv6 literal without URL escaping, so use the default port
-        addNewHost(NvAddress(address, DEFAULT_HTTP_PORT), false);
+        addNewHost(NvAddress(address, DEFAULT_HTTP_PORT), false, QString(), NvAddress(), overrides);
     }
     else {
         emit computerAddCompleted(false, false);
@@ -747,12 +760,14 @@ class PendingAddTask : public QObject, public QRunnable
     Q_OBJECT
 
 public:
-    PendingAddTask(ComputerManager* computerManager, QString name, NvAddress address, NvAddress mdnsIpv6Address, bool mdns)
+    PendingAddTask(ComputerManager* computerManager, QString name, NvAddress address, NvAddress mdnsIpv6Address, bool mdns,
+                   NvPortOverrides portOverrides = NvPortOverrides())
         : m_ComputerManager(computerManager),
           m_Name(name),
           m_Address(address),
           m_MdnsIpv6Address(mdnsIpv6Address),
           m_Mdns(mdns),
+          m_PortOverrides(portOverrides),
           m_AboutToQuit(false)
     {
         connect(this, &PendingAddTask::computerAddCompleted,
@@ -827,6 +842,10 @@ private:
     {
         NvHTTP http(m_Address, 0, QSslCertificate());
 
+        // Apply the HTTPS port override (if any) so serverinfo queries over HTTPS
+        // reach the host on its remapped port instead of the advertised one.
+        http.setHttpsPortOverride(m_PortOverrides.httpsPort);
+
         if (m_Mdns) {
             if (m_MdnsIpv6Address.isNull()) {
                 qInfo() << "Processing new PC" << m_Name << "from mDNS with local address" << m_Address.toString();
@@ -853,6 +872,13 @@ private:
 
         // Create initial newComputer using HTTP serverinfo with no pinned cert
         NvComputer* newComputer = new NvComputer(http, serverInfo);
+
+        // Carry over the user-configured streaming port overrides. The HTTPS port
+        // override is already applied via the NvHTTP object above.
+        newComputer->videoPortOverride = m_PortOverrides.videoPort;
+        newComputer->audioPortOverride = m_PortOverrides.audioPort;
+        newComputer->controlPortOverride = m_PortOverrides.controlPort;
+        newComputer->rtspPortOverride = m_PortOverrides.rtspPort;
 
         // Check if we have a record of this host UUID to pull the pinned cert
         NvComputer* existingComputer;
@@ -990,14 +1016,16 @@ private:
     NvAddress m_Address;
     NvAddress m_MdnsIpv6Address;
     bool m_Mdns;
+    NvPortOverrides m_PortOverrides;
     bool m_AboutToQuit;
 };
 
-void ComputerManager::addNewHost(NvAddress address, bool mdns, QString name, NvAddress mdnsIpv6Address)
+void ComputerManager::addNewHost(NvAddress address, bool mdns, QString name, NvAddress mdnsIpv6Address,
+                                 NvPortOverrides portOverrides)
 {
     // Punt to a worker thread to avoid stalling the
     // UI while waiting for serverinfo query to complete
-    PendingAddTask* addTask = new PendingAddTask(this, name, address, mdnsIpv6Address, mdns);
+    PendingAddTask* addTask = new PendingAddTask(this, name, address, mdnsIpv6Address, mdns, portOverrides);
     QThreadPool::globalInstance()->start(addTask);
 }
 

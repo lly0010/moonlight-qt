@@ -225,9 +225,12 @@ public:
 
     Q_INVOKABLE void stopPollingAsync();
 
-    Q_INVOKABLE void addNewHostManually(QString address);
+    Q_INVOKABLE void addNewHostManually(QString address,
+                                        int httpsPort = 0, int videoPort = 0, int audioPort = 0,
+                                        int controlPort = 0, int rtspPort = 0);
 
-    void addNewHost(NvAddress address, bool mdns, QString name = QString(), NvAddress mdnsIpv6Address = NvAddress());
+    void addNewHost(NvAddress address, bool mdns, QString name = QString(), NvAddress mdnsIpv6Address = NvAddress(),
+                    NvPortOverrides portOverrides = NvPortOverrides());
 
     QString generatePinString();
 
